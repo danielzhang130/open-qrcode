@@ -8,7 +8,7 @@ android {
     compileSdkVersion 33
     defaultConfig {
         applicationId "com.mauriciogior.openqrcode"
-        minSdkVersion 14
+        minSdkVersion 29
         targetSdkVersion 33
         versionCode 3
         versionName "1.2"

@@ -26,11 +26,8 @@
 package com.mauriciogior.openqrcode;
 
 import android.Manifest;
-import android.content.ClipData;
-import android.content.ClipboardManager;
-import android.content.DialogInterface;
-import android.content.Intent;
-import android.content.SharedPreferences;
+import android.app.KeyguardManager;
+import android.content.*;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
@@ -41,27 +38,17 @@ import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.text.SpannableString;
 import android.text.method.LinkMovementMethod;
+import android.text.style.URLSpan;
 import android.text.util.Linkify;
-import android.view.ActionMode;
-import android.view.Menu;
-import android.view.MenuInflater;
-import android.view.MenuItem;
-import android.view.View;
-import android.widget.AbsListView;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
-import android.widget.ListView;
-import android.widget.TextView;
-import android.widget.Toast;
-
+import android.view.*;
+import android.widget.*;
 import com.google.zxing.Result;
+import me.dm7.barcodescanner.zxing.ZXingScannerView;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-
-import me.dm7.barcodescanner.zxing.ZXingScannerView;
 
 public class MainActivity extends AppCompatActivity implements ZXingScannerView.ResultHandler {
 
@@ -72,11 +59,13 @@ public class MainActivity extends AppCompatActivity implements ZXingScannerView.
     private ArrayAdapter<String> mArrayAdapter;
     private Menu mMenu;
 
+    private BottomNavigationView mNavigation;
+
     private int menu = R.id.navigation_camera;
     private boolean flash = false;
     private List<Integer> checkedItems = new ArrayList<>();
 
-    private ListView.MultiChoiceModeListener multiChoiceModeListener = new AbsListView.MultiChoiceModeListener() {
+    private final ListView.MultiChoiceModeListener multiChoiceModeListener = new AbsListView.MultiChoiceModeListener() {
         @Override
         public void onItemCheckedStateChanged(ActionMode actionMode, int position, long id, boolean checked) {
             if (checkedItems.contains(position)) {
@@ -123,22 +112,19 @@ public class MainActivity extends AppCompatActivity implements ZXingScannerView.
         public boolean onActionItemClicked(final ActionMode actionMode, MenuItem menuItem) {
             if (menuItem.getItemId() == R.id.action_remove) {
                 new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Remove")
-                    .setMessage("Are you sure you want to remove " + checkedItems.size() + " item" + (checkedItems.size() > 1 ? "s" : "") + "?")
-                    .setPositiveButton("Remove", new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface dialogInterface, int position) {
+                        .setTitle("Remove")
+                        .setMessage("Are you sure you want to remove " + checkedItems.size() + " item" + (checkedItems.size() > 1 ? "s" : "") + "?")
+                        .setPositiveButton("Remove", (dialogInterface, position) -> {
                             for (Integer i : checkedItems) {
                                 String qrCode = (String) mArrayAdapter.getItem(i);
                                 removeHistory(qrCode);
                             }
 
                             actionMode.finish();
-                        }
-                    })
-                    .setNegativeButton("Cancel", null)
-                    .create()
-                    .show();
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .create()
+                        .show();
                 return true;
 
             } else if (menuItem.getItemId() == R.id.action_select_all) {
@@ -159,23 +145,23 @@ public class MainActivity extends AppCompatActivity implements ZXingScannerView.
         }
     };
 
-    private BottomNavigationView.OnNavigationItemSelectedListener mOnNavigationItemSelectedListener
-            = new BottomNavigationView.OnNavigationItemSelectedListener() {
-
-        @Override
-        public boolean onNavigationItemSelected(@NonNull MenuItem item) {
-            if (menu == item.getItemId()) return false;
-            menu = item.getItemId();
-            switch (item.getItemId()) {
-                case R.id.navigation_camera:
-                    setCameraPage();
-                    return true;
-                case R.id.navigation_history:
+    private final BottomNavigationView.OnNavigationItemSelectedListener mOnNavigationItemSelectedListener
+            = item -> {
+        if (menu == item.getItemId()) return false;
+        switch (item.getItemId()) {
+            case R.id.navigation_camera:
+                menu = item.getItemId();
+                setCameraPage();
+                return true;
+            case R.id.navigation_history:
+                requireKeyguard(() -> {
+                    menu = item.getItemId();
+                    item.setChecked(true);
                     setHistoryPage();
-                    return true;
-            }
-            return false;
+                });
+                return false;
         }
+        return false;
     };
 
     private void setCameraPage() {
@@ -194,16 +180,11 @@ public class MainActivity extends AppCompatActivity implements ZXingScannerView.
         }
     }
 
-    private void  setHistoryPage() {
+    private void setHistoryPage() {
         mListView.setVisibility(View.VISIBLE);
         mScannerView.stopCamera();
         setSimpleList();
-        mListView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
-            @Override
-            public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
-                showAlertDialog((String) adapterView.getItemAtPosition(i));
-            }
-        });
+        mListView.setOnItemClickListener((adapterView, view, i, l) -> showAlertDialog((String) adapterView.getItemAtPosition(i)));
 
         if (mMenu != null) {
             mMenu.findItem(R.id.action_flash_on).setVisible(false);
@@ -260,6 +241,20 @@ public class MainActivity extends AppCompatActivity implements ZXingScannerView.
         editor.apply();
     }
 
+    private void requireKeyguard(Runnable callback) {
+        KeyguardManager keyguardManager = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+        if (keyguardManager == null || !keyguardManager.isKeyguardLocked()) {
+            callback.run();
+            return;
+        }
+        keyguardManager.requestDismissKeyguard(this, new KeyguardManager.KeyguardDismissCallback() {
+            @Override
+            public void onDismissSucceeded() {
+                callback.run();
+            }
+        });
+    }
+
     private void pushHistory(String qrCode) {
         Set<String> set = getHistory();
         set.add(qrCode);
@@ -293,8 +288,8 @@ public class MainActivity extends AppCompatActivity implements ZXingScannerView.
         mListView.setChoiceMode(ListView.CHOICE_MODE_MULTIPLE_MODAL);
         mListView.setMultiChoiceModeListener(multiChoiceModeListener);
 
-        BottomNavigationView navigation = findViewById(R.id.navigation);
-        navigation.setOnNavigationItemSelectedListener(mOnNavigationItemSelectedListener);
+        mNavigation = findViewById(R.id.navigation);
+        mNavigation.setOnNavigationItemSelectedListener(mOnNavigationItemSelectedListener);
 
         if (savedInstanceState != null) {
             flash = savedInstanceState.getBoolean("flash", false);
@@ -308,7 +303,7 @@ public class MainActivity extends AppCompatActivity implements ZXingScannerView.
 
         // If permission not given
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_DENIED) {
-            ActivityCompat.requestPermissions(this, new String[] {Manifest.permission.CAMERA}, REQ_CAMERA);
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, REQ_CAMERA);
 
         } else {
             mounted();
@@ -367,41 +362,56 @@ public class MainActivity extends AppCompatActivity implements ZXingScannerView.
 
     private void showAlertDialog(final String text, final boolean resumeCamera) {
         final SpannableString message = new SpannableString(text);
-        Linkify.addLinks(message, Linkify.ALL);
+        Linkify.addLinks(message, Linkify.ALL, KeyguardURLSpan::new);
 
         pushHistory(text);
 
         AlertDialog dialog = new AlertDialog.Builder(this)
-            .setTitle("QR Code")
-            .setMessage(message)
-            .setPositiveButton("Copy", new DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(DialogInterface dialogInterface, int i) {
-                    setClipboard(text);
-                }
-            })
-            .setNeutralButton("Share", new DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(DialogInterface dialogInterface, int i) {
-                    Intent sendIntent = new Intent();
-                    sendIntent.setAction(Intent.ACTION_SEND);
-                    sendIntent.putExtra(Intent.EXTRA_TEXT, text);
-                    sendIntent.setType("text/plain");
-                    startActivity(sendIntent);
-                }
-            })
-            .setNegativeButton("Cancel", null)
-            .setOnDismissListener(new DialogInterface.OnDismissListener() {
-                @Override
-                public void onDismiss(DialogInterface dialogInterface) {
+                .setTitle("QR Code")
+                .setMessage(message)
+                .setPositiveButton("Copy", null)
+                .setNeutralButton("Share", null)
+                .setNegativeButton("Cancel", null)
+                .setOnDismissListener(dialogInterface -> {
                     if (resumeCamera) {
                         mScannerView.resumeCameraPreview(MainActivity.this);
                     }
-                }
+                })
+                .create();
+
+        dialog.setOnShowListener(dialogInterface -> {
+            Button positive = ((AlertDialog) dialogInterface).getButton(AlertDialog.BUTTON_POSITIVE);
+            positive.setOnClickListener(v -> requireKeyguard(() -> {
+                dialogInterface.dismiss();
+                setClipboard(text);
             })
-            .show();
+            );
+
+            Button neutral = ((AlertDialog) dialogInterface).getButton(AlertDialog.BUTTON_NEUTRAL);
+            neutral.setOnClickListener(v -> requireKeyguard(() -> {
+                        dialogInterface.dismiss();
+                        Intent sendIntent = new Intent();
+                        sendIntent.setAction(Intent.ACTION_SEND);
+                        sendIntent.putExtra(Intent.EXTRA_TEXT, text);
+                        sendIntent.setType("text/plain");
+                        startActivity(sendIntent);
+                    })
+            );
+        });
+        dialog.show();
 
         ((TextView) dialog.findViewById(android.R.id.message)).setMovementMethod(LinkMovementMethod.getInstance());
+    }
+
+    private class KeyguardURLSpan extends URLSpan {
+        public KeyguardURLSpan(String url) {
+            super(url);
+        }
+
+        @Override
+        public void onClick(@NonNull View widget) {
+            requireKeyguard(() -> super.onClick(widget));
+        }
     }
 
     @Override
@@ -432,12 +442,12 @@ public class MainActivity extends AppCompatActivity implements ZXingScannerView.
     public boolean onOptionsItemSelected(MenuItem item) {
         if (item.getItemId() == R.id.menu_info) {
             new AlertDialog.Builder(this)
-                .setTitle("Info")
-                .setMessage("Created by a pissed of developer from apps loaded with ads.\n\n" +
-                 "Mauricio Giordano <giordano@inevent.us>\n\n" +
-                 "Open source software under MIT License")
-                .setNegativeButton("Ok", null)
-                .show();
+                    .setTitle("Info")
+                    .setMessage("Created by a pissed of developer from apps loaded with ads.\n\n" +
+                            "Mauricio Giordano <giordano@inevent.us>\n\n" +
+                            "Open source software under MIT License")
+                    .setNegativeButton("Ok", null)
+                    .show();
 
         } else if (item.getItemId() == R.id.action_flash_on) {
             mMenu.findItem(R.id.action_flash_off).setVisible(true);
@@ -460,12 +470,8 @@ public class MainActivity extends AppCompatActivity implements ZXingScannerView.
         if (flash == this.flash) return;
         this.flash = flash;
         try {
-            mScannerView.postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    mScannerView.setFlash(flash);
-                }
-            }, 1500);
-        } catch (Exception ignore) { }
+            mScannerView.postDelayed(() -> mScannerView.setFlash(flash), 1500);
+        } catch (Exception ignore) {
+        }
     }
 }
